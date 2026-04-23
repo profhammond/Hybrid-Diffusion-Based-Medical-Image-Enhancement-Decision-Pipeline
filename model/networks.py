@@ -90,7 +90,7 @@ def define_G(opt):
 MODEL_REGISTRY = {
     "sr3": "sr3_modules",
     "ddpm": "ddpm_modules",
-    "ddpm_srde": "DDPM_SRDE_Modules",   # <-- my custom model
+    "hdbmie": "hdbmie_modules",   # <-- my custom model
 }
 
 
@@ -116,8 +116,8 @@ def define_G(opt):
         from .sr3_modules import diffusion, unet
     elif module_name == "ddpm_modules":
         from .ddpm_modules import diffusion, unet
-    elif module_name == "ddpm_srde_modules":
-        from .ddpm_srde_modules import diffusion, unet
+    elif module_name == "hdbmie_modules":
+        from .hdbmie_modules import diffusion, unet
     else:
         raise ImportError(f"Module {module_name} not found")
 
