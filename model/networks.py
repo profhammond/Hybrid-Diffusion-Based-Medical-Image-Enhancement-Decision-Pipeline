@@ -107,7 +107,7 @@ def define_G(opt):
     elif model_type == "ddpm":
         from .ddpm_modules import diffusion, unet
     elif model_type == "ddpm_srde":
-        from .ddpm_srde_modules import diffusion, unet
+        from .DDPM_SRDE_modules import diffusion, unet
 
     # =========================================================
     # DEFAULT CONFIG SAFETY
