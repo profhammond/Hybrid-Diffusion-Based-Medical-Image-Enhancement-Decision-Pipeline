@@ -1,0 +1,104 @@
+{
+    "name": "distributed_high_sr_ffhq_ddpm_srde",
+    "phase": "train",
+    "gpu_ids": [0, 1],
+
+    "path": {
+        "log": "logs",
+        "tb_logger": "tb_logger",
+        "results": "results",
+        "checkpoint": "checkpoint",
+        "resume_state": null
+    },
+
+    "datasets": {
+        "train": {
+            "name": "FFHQ",
+            "mode": "HR",
+            "dataroot": "dataset/ffhq_64_512",
+            "datatype": "img",
+            "l_resolution": 64,
+            "r_resolution": 512,
+            "batch_size": 2,
+            "num_workers": 8,
+            "use_shuffle": true,
+            "data_len": -1
+        },
+        "val": {
+            "name": "CelebaHQ",
+            "mode": "LRHR",
+            "dataroot": "dataset/celebahq_64_512",
+            "datatype": "img",
+            "l_resolution": 64,
+            "r_resolution": 512,
+            "data_len": 50
+        }
+    },
+
+    "model": {
+        "which_model_G": "ddpm_srde",
+        "finetune_norm": false,
+
+        "unet": {
+            "in_channel": 6,
+            "out_channel": 3,
+            "inner_channel": 64,
+            "norm_groups": 32,
+
+            "channel_multiplier": [
+                1,
+                2,
+                4,
+                8,
+                8
+            ],
+
+            "attn_res": [],
+            "res_blocks": 2,
+            "dropout": 0.1
+        },
+
+        "beta_schedule": {
+            "train": {
+                "schedule": "cosine",
+                "n_timestep": 1000,
+                "linear_start": 1e-4,
+                "linear_end": 2e-2
+            },
+            "val": {
+                "schedule": "cosine",
+                "n_timestep": 1000,
+                "linear_start": 1e-4,
+                "linear_end": 2e-2
+            }
+        },
+
+        "diffusion": {
+            "image_size": 512,
+            "channels": 3,
+            "conditional": true
+        }
+    },
+
+    "train": {
+        "n_iter": 1000000,
+        "val_freq": 10000,
+        "save_checkpoint_freq": 10000,
+        "print_freq": 50,
+
+        "optimizer": {
+            "type": "adam",
+            "lr": 1e-4
+        },
+
+        "ema_scheduler": {
+            "step_start_ema": 5000,
+            "update_ema_every": 1,
+            "ema_decay": 0.9999
+        }
+    },
+
+    "wandb": {
+        "project": "distributed_high_sr_ffhq_ddpm_srde"
+    }
+}
