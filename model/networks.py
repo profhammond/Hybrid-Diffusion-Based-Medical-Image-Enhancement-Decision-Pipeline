@@ -90,7 +90,7 @@ def define_G(opt):
 MODEL_REGISTRY = {
     "sr3": "sr3_modules",
     "ddpm": "ddpm_modules",
-    "ddpm_srde": "ddpm_srde_modules",   # <-- your custom model
+    "ddpm_srde": "DDPM_SRDE_Modules",   # <-- my custom model
 }
 
 
