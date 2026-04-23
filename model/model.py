@@ -1,8 +1,12 @@
+# DDPM + Modern SR Diffusion Enhancements
+
 import logging
 from collections import OrderedDict
+import os
+
 import torch
 import torch.nn as nn
-import os
+import torch.nn.functional as F
 
 import model.networks as networks
 from .base_model import BaseModel
@@ -15,32 +19,30 @@ class DDPM(BaseModel):
         super(DDPM, self).__init__(opt)
 
         # =========================================================
-        # GENERATOR
+        # MODEL
         # =========================================================
         self.netG = self.set_device(networks.define_G(opt))
-        self.schedule_phase = None
 
-        # =========================================================
-        # EMA MODEL (QUALITY BOOST)
-        # =========================================================
+        # EMA model (for better inference quality)
         self.use_ema = True
         if self.use_ema:
             self.netG_ema = self.set_device(networks.define_G(opt))
             self.netG_ema.load_state_dict(self.netG.state_dict())
             self.ema_decay = 0.999
 
+        self.schedule_phase = None
+
         # =========================================================
         # LOSS + NOISE SCHEDULE
         # =========================================================
         self.set_loss()
-
         self.set_new_noise_schedule(
             opt['model']['beta_schedule']['train'],
             schedule_phase='train'
         )
 
         # =========================================================
-        # TRAIN MODE
+        # TRAIN SETUP
         # =========================================================
         if self.opt['phase'] == 'train':
             self.netG.train()
@@ -51,14 +53,12 @@ class DDPM(BaseModel):
                     v.requires_grad = False
                     if 'transformer' in k:
                         v.requires_grad = True
-                        v.data.zero_()
                         optim_params.append(v)
-                        logger.info(f'Optimizing param: {k}')
             else:
                 optim_params = list(self.netG.parameters())
 
             # =========================================================
-            # ADAMW (better than Adam for diffusion models)
+            # AdamW (recommended for diffusion models)
             # =========================================================
             self.optG = torch.optim.AdamW(
                 optim_params,
@@ -73,7 +73,7 @@ class DDPM(BaseModel):
         self.print_network()
 
     # =========================================================
-    # EMA UPDATE (NEW)
+    # EMA UPDATE
     # =========================================================
     def update_ema(self):
         if not self.use_ema:
@@ -87,37 +87,34 @@ class DDPM(BaseModel):
                 p_ema.data.mul_(self.ema_decay).add_(p.data, alpha=1 - self.ema_decay)
 
     # =========================================================
-    # DATA FEED
+    # DATA INPUT
     # =========================================================
     def feed_data(self, data):
         self.data = self.set_device(data)
 
     # =========================================================
-    # TRAIN STEP (IMPROVED STABILITY)
+    # TRAIN STEP (STABLE + CLIPPED + EMA)
     # =========================================================
     def optimize_parameters(self):
         self.optG.zero_grad()
 
-        l_pix = self.netG(self.data)
+        loss = self.netG(self.data)
+        loss = loss.mean()
 
-        # stabilize diffusion loss
-        l_pix = l_pix.mean()
+        loss.backward()
 
-        l_pix.backward()
-
-        # gradient clipping (VERY important for DDPM stability)
+        # gradient clipping (critical for diffusion stability)
         torch.nn.utils.clip_grad_norm_(self.netG.parameters(), 1.0)
 
         self.optG.step()
 
-        # EMA update
+        # update EMA
         self.update_ema()
 
-        # log
-        self.log_dict['l_pix'] = l_pix.item()
+        self.log_dict['loss'] = loss.item()
 
     # =========================================================
-    # TEST (USES EMA FOR BETTER QUALITY)
+    # TEST (USES EMA MODEL)
     # =========================================================
     def test(self, continous=False):
         model = self.netG_ema if self.use_ema else self.netG
@@ -136,17 +133,21 @@ class DDPM(BaseModel):
         model.train()
 
     # =========================================================
-    # SAMPLING (EMA MODEL)
+    # SAMPLING (HOOK FOR DDIM UPGRADE)
     # =========================================================
     def sample(self, batch_size=1, continous=False):
         model = self.netG_ema if self.use_ema else self.netG
         model.eval()
 
         with torch.no_grad():
-            if isinstance(model, nn.DataParallel):
-                self.SR = model.module.sample(batch_size, continous)
+            if hasattr(model, "ddim_sample"):
+                self.SR = model.ddim_sample(batch_size, continous)
             else:
-                self.SR = model.sample(batch_size, continous)
+                # fallback to original sampling
+                if isinstance(model, nn.DataParallel):
+                    self.SR = model.module.sample(batch_size, continous)
+                else:
+                    self.SR = model.sample(batch_size, continous)
 
         model.train()
 
@@ -160,10 +161,10 @@ class DDPM(BaseModel):
             self.netG.set_loss(self.device)
 
     # =========================================================
-    # NOISE SCHEDULE
+    # NOISE SCHEDULE (COSINE READY HOOK)
     # =========================================================
     def set_new_noise_schedule(self, schedule_opt, schedule_phase='train'):
-        if self.schedule_phase is None or self.schedule_phase != schedule_phase:
+        if self.schedule_phase != schedule_phase:
             self.schedule_phase = schedule_phase
 
             if isinstance(self.netG, nn.DataParallel):
@@ -182,7 +183,7 @@ class DDPM(BaseModel):
         return self.log_dict
 
     # =========================================================
-    # VISUALIZATION OUTPUT
+    # VISUAL OUTPUT
     # =========================================================
     def get_current_visuals(self, need_LR=True, sample=False):
         out_dict = OrderedDict()
@@ -202,23 +203,21 @@ class DDPM(BaseModel):
         return out_dict
 
     # =========================================================
-    # NETWORK PRINT
+    # NETWORK INFO
     # =========================================================
     def print_network(self):
         s, n = self.get_network_description(self.netG)
 
         if isinstance(self.netG, nn.DataParallel):
-            net_struc_str = f"{self.netG.__class__.__name__}-{self.netG.module.__class__.__name__}"
+            name = f"{self.netG.__class__.__name__}-{self.netG.module.__class__.__name__}"
         else:
-            net_struc_str = self.netG.__class__.__name__
+            name = self.netG.__class__.__name__
 
-        logger.info(
-            f'Network G structure: {net_struc_str}, params: {n:,}'
-        )
+        logger.info(f"Network: {name}, Params: {n:,}")
         logger.info(s)
 
     # =========================================================
-    # SAVE (INCLUDES EMA MODEL)
+    # SAVE MODEL (INCLUDES EMA)
     # =========================================================
     def save_network(self, epoch, iter_step):
 
@@ -234,28 +233,25 @@ class DDPM(BaseModel):
 
         # main model
         net = self.netG.module if isinstance(self.netG, nn.DataParallel) else self.netG
-        state_dict = {k: v.cpu() for k, v in net.state_dict().items()}
-        torch.save(state_dict, gen_path)
+        torch.save({k: v.cpu() for k, v in net.state_dict().items()}, gen_path)
 
         # EMA model
         if self.use_ema:
             ema_net = self.netG_ema.module if isinstance(self.netG_ema, nn.DataParallel) else self.netG_ema
-            ema_state = {k: v.cpu() for k, v in ema_net.state_dict().items()}
-            torch.save(ema_state, gen_path.replace("_gen.pth", "_ema_gen.pth"))
+            torch.save({k: v.cpu() for k, v in ema_net.state_dict().items()},
+                       gen_path.replace("_gen.pth", "_ema.pth"))
 
         # optimizer
-        opt_state = {
+        torch.save({
             'epoch': epoch,
             'iter': iter_step,
             'optimizer': self.optG.state_dict()
-        }
+        }, opt_path)
 
-        torch.save(opt_state, opt_path)
-
-        logger.info(f"Saved model: {gen_path}")
+        logger.info(f"Saved: {gen_path}")
 
     # =========================================================
-    # LOAD (EMA SUPPORT)
+    # LOAD MODEL
     # =========================================================
     def load_network(self):
         load_path = self.opt['path']['resume_state']
@@ -267,18 +263,14 @@ class DDPM(BaseModel):
             opt_path = f'{load_path}_opt.pth'
 
             net = self.netG.module if isinstance(self.netG, nn.DataParallel) else self.netG
-            net.load_state_dict(
-                torch.load(gen_path),
-                strict=(not self.opt['model']['finetune_norm'])
-            )
+            net.load_state_dict(torch.load(gen_path),
+                                strict=(not self.opt['model']['finetune_norm']))
 
-            # EMA load
             if self.use_ema:
-                ema_path = f'{load_path}_ema_gen.pth'
+                ema_path = f'{load_path}_ema.pth'
                 if os.path.exists(ema_path):
                     ema_net = self.netG_ema.module if isinstance(self.netG_ema, nn.DataParallel) else self.netG_ema
                     ema_net.load_state_dict(torch.load(ema_path))
-                    logger.info("EMA model loaded")
 
             if self.opt['phase'] == 'train':
                 opt = torch.load(opt_path)
