@@ -79,15 +79,43 @@ def init_weights(net, init_type='kaiming', scale=1, std=0.02):
 ####################
 
 
-# Generator
 def define_G(opt):
     model_opt = opt['model']
-    if model_opt['which_model_G'] == 'ddpm':
-        from .ddpm_modules import diffusion, unet
-    elif model_opt['which_model_G'] == 'sr3':
+
+    model_type = model_opt['which_model_G']
+
+    # -----------------------------
+    # SR3 MODEL
+    # -----------------------------
+    if model_type == 'sr3':
         from .sr3_modules import diffusion, unet
+
+    # -----------------------------
+    # ORIGINAL DDPM MODEL
+    # -----------------------------
+    elif model_type == 'ddpm':
+        from .ddpm_modules import diffusion, unet
+
+    # -----------------------------
+    # NEW: DDPM_SRDE MODEL
+    # -----------------------------
+    elif model_type == 'ddpm_srde':
+        from .ddpm_srde_modules import diffusion, unet
+
+    else:
+        raise NotImplementedError(
+            f"Unknown model type: {model_type}"
+        )
+
+    # -----------------------------
+    # safety default for norm groups
+    # -----------------------------
     if ('norm_groups' not in model_opt['unet']) or model_opt['unet']['norm_groups'] is None:
-        model_opt['unet']['norm_groups']=32
+        model_opt['unet']['norm_groups'] = 32
+
+    # -----------------------------
+    # build UNet backbone
+    # -----------------------------
     model = unet.UNet(
         in_channel=model_opt['unet']['in_channel'],
         out_channel=model_opt['unet']['out_channel'],
@@ -99,18 +127,30 @@ def define_G(opt):
         dropout=model_opt['unet']['dropout'],
         image_size=model_opt['diffusion']['image_size']
     )
+
+    # -----------------------------
+    # wrap in diffusion process
+    # -----------------------------
     netG = diffusion.GaussianDiffusion(
         model,
         image_size=model_opt['diffusion']['image_size'],
         channels=model_opt['diffusion']['channels'],
-        loss_type='l1',    # L1 or L2
+        loss_type='l1',
         conditional=model_opt['diffusion']['conditional'],
         schedule_opt=model_opt['beta_schedule']['train']
     )
+
+    # -----------------------------
+    # initialization (training only)
+    # -----------------------------
     if opt['phase'] == 'train':
-        # init_weights(netG, init_type='kaiming', scale=0.1)
         init_weights(netG, init_type='orthogonal')
-    if opt['gpu_ids'] and opt['distributed']:
+
+    # -----------------------------
+    # multi-GPU support
+    # -----------------------------
+    if opt.get('gpu_ids') and opt.get('distributed'):
         assert torch.cuda.is_available()
         netG = nn.DataParallel(netG)
+
     return netG
