@@ -94,23 +94,28 @@ class Block(nn.Module):
         return self.block(x)
 
 
-class ResnetBlock(nn.Module):
-    def __init__(self, dim, dim_out, noise_level_emb_dim=None, dropout=0, use_affine_level=False, norm_groups=32):
+class ResnetBlocWithAttn(nn.Module):
+    def __init__(self, dim, dim_out, *, noise_level_emb_dim=None, norm_groups=32, dropout=0, with_attn=False):
         super().__init__()
-        self.noise_func = FeatureWiseAffine(
-            noise_level_emb_dim, dim_out, use_affine_level)
+        self.with_attn = with_attn
+        self.res_block = ResnetBlock(
+            dim,
+            dim_out,
+            noise_level_emb_dim,
+            norm_groups=norm_groups,
+            dropout=dropout
+        )
 
-        self.block1 = Block(dim, dim_out, groups=norm_groups)
-        self.block2 = Block(dim_out, dim_out, groups=norm_groups, dropout=dropout)
-        self.res_conv = nn.Conv2d(
-            dim, dim_out, 1) if dim != dim_out else nn.Identity()
+        if with_attn:
+            self.attn = SelfAttention(dim_out, norm_groups=norm_groups)
 
     def forward(self, x, time_emb):
-        b, c, h, w = x.shape
-        h = self.block1(x)
-        h = self.noise_func(h, time_emb)
-        h = self.block2(h)
-        return h + self.res_conv(x)
+        h = self.res_block(x, time_emb)
+
+        if self.with_attn:
+            h = self.attn(h)
+
+        return h
 
 
 class SelfAttention(nn.Module):
