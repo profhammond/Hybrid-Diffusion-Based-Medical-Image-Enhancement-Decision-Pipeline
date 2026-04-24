@@ -150,7 +150,7 @@ def define_G(opt):
         channels=model_opt['diffusion']['channels'],
         loss_type='l1',
         conditional=model_opt['diffusion']['conditional'],
-        schedule_opt=model_opt['beta_schedule']['train']
+        
 )
 
     # =========================================================
