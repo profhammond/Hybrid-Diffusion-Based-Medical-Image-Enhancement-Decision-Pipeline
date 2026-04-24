@@ -95,8 +95,10 @@ class Block(nn.Module):
 
 
 class ResnetBlocWithAttn(nn.Module):
-    def __init__(self, dim, dim_out, *, noise_level_emb_dim=None, norm_groups=32, dropout=0, with_attn=False):
+    def __init__(self, dim, dim_out, *, noise_level_emb_dim=None,
+                 norm_groups=32, dropout=0, with_attn=False):
         super().__init__()
+
         self.with_attn = with_attn
 
         self.res_block = ResnetBlock(
@@ -111,13 +113,14 @@ class ResnetBlocWithAttn(nn.Module):
             self.attn = SelfAttention(dim_out, norm_groups=norm_groups)
 
     def forward(self, x, time_emb):
-        # IMPORTANT: correct indentation (4 spaces)
+        
         h = self.res_block(x, time_emb)
 
         if self.with_attn:
             h = self.attn(h)
 
         return h
+
 
 
 class SelfAttention(nn.Module):
@@ -166,12 +169,12 @@ class ResnetBlocWithAttn(nn.Module):
             self.attn = SelfAttention(dim_out, norm_groups=norm_groups)
 
     def forward(self, x, time_emb):
-    h = self.block1(x)
-    h = self.noise_func(h, time_emb)
-    h = self.block2(h)
-
-    # residual scaling improves diffusion stability
-    return h * 0.1 + self.res_conv(x)
+        h = self.block1(x)
+        h = self.noise_func(h, time_emb)
+        h = self.block2(h)
+    
+        # residual scaling improves diffusion stability
+        return h * 0.1 + self.res_conv(x)
 
 
 class UNet(nn.Module):
