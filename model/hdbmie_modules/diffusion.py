@@ -84,7 +84,7 @@ class GaussianDiffusion(nn.Module):
         ):
         super().__init__()
 
-        self.denoise_fn = denoise_fn
+        self.denoise_fn = model
         self.image_size = image_size
         self.channels = channels
         self.conditional = conditional
