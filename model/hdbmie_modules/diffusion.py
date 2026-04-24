@@ -90,10 +90,7 @@ class GaussianDiffusion(nn.Module):
         self.conditional = conditional
         self.loss_type = loss_type
 
-        if schedule_opt is not None:
-            self.schedule = schedule_opt
-        else:
-            self.schedule = default_schedule()
+        
 
     # ----------------------------
     # LOSS
