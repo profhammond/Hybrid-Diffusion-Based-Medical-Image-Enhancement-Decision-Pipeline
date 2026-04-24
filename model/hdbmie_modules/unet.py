@@ -103,7 +103,7 @@ class Block(nn.Module):
     def __init__(self, dim, dim_out, groups=32, dropout=0):
         super().__init__()
         self.block = nn.Sequential(
-            nn.GroupNorm(groups, dim),
+            nn.GroupNorm(num_groups=min(groups, dim), num_channels=dim),
             Swish(),
             nn.Dropout(dropout),
             nn.Conv2d(dim, dim_out, 3, padding=1)
