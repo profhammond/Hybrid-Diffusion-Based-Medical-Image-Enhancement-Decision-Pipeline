@@ -89,6 +89,7 @@ class GaussianDiffusion(nn.Module):
         self.channels = channels
         self.conditional = conditional
         self.loss_type = loss_type
+        self.num_timesteps = 1000
 
         
 
