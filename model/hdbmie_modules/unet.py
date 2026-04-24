@@ -148,7 +148,7 @@ class ResnetBlocWithAttn(nn.Module):
             else:
                 x = layer(x)
 
-    return self.final_conv(x)
+        return self.final_conv(x)
 
 
 
