@@ -55,11 +55,9 @@ class GaussianDiffusion(nn.Module):
         self.image_size = image_size
         self.channels = channels
         self.conditional = conditional
-        self.loss_type = loss_type
-
         self.num_timesteps = timesteps
 
-        # ---------------- LOSS (FIX #1) ----------------
+        # ---------------- LOSS ----------------
         if loss_type == 'l1':
             self.loss_func = nn.L1Loss()
         elif loss_type == 'l2':
@@ -79,6 +77,7 @@ class GaussianDiffusion(nn.Module):
         alphas_cumprod = torch.cumprod(alphas, dim=0)
         alphas_cumprod_prev = F.pad(alphas_cumprod[:-1], (1, 0), value=1.0)
 
+        # buffers
         self.register_buffer("betas", betas)
         self.register_buffer("alphas_cumprod", alphas_cumprod)
         self.register_buffer("alphas_cumprod_prev", alphas_cumprod_prev)
@@ -86,6 +85,13 @@ class GaussianDiffusion(nn.Module):
         self.register_buffer("sqrt_alphas_cumprod", torch.sqrt(alphas_cumprod))
         self.register_buffer("sqrt_one_minus_alphas_cumprod",
                              torch.sqrt(1.0 - alphas_cumprod))
+
+        self.register_buffer("sqrt_recip_alphas",
+                             torch.sqrt(1.0 / alphas))
+
+        self.register_buffer("posterior_variance",
+                             betas * (1.0 - alphas_cumprod_prev) / (1.0 - alphas_cumprod))
+
 
     # ----------------------------
     # forward diffusion
@@ -98,6 +104,7 @@ class GaussianDiffusion(nn.Module):
             extract(self.sqrt_alphas_cumprod, t, x_start.shape) * x_start +
             extract(self.sqrt_one_minus_alphas_cumprod, t, x_start.shape) * noise
         )
+
 
     # ----------------------------
     # training loss
@@ -125,6 +132,62 @@ class GaussianDiffusion(nn.Module):
         loss = self.loss_func(noise_pred, noise)
 
         return loss
+
+
+    # ----------------------------
+    # reverse step
+    # ----------------------------
+
+    def p_sample(self, x, t, cond=None):
+
+        if self.conditional and cond is not None:
+            model_input = torch.cat([cond, x], dim=1)
+        else:
+            model_input = x
+
+        noise_pred = self.denoise_fn(model_input, t)
+
+        betas_t = extract(self.betas, t, x.shape)
+        sqrt_one_minus_alphas_cumprod_t = extract(
+            self.sqrt_one_minus_alphas_cumprod, t, x.shape)
+        sqrt_recip_alphas_t = extract(self.sqrt_recip_alphas, t, x.shape)
+
+        model_mean = sqrt_recip_alphas_t * (
+            x - betas_t * noise_pred / sqrt_one_minus_alphas_cumprod_t
+        )
+
+        if t.min() == 0:
+            return model_mean
+
+        noise = torch.randn_like(x)
+        posterior_var_t = extract(self.posterior_variance, t, x.shape)
+
+        return model_mean + torch.sqrt(posterior_var_t) * noise
+
+
+    # ----------------------------
+    # sampling loop
+    # ----------------------------
+
+    @torch.no_grad()
+    def sample(self, batch_size=1, cond=None):
+
+        device = next(self.parameters()).device
+
+        x = torch.randn(
+            batch_size,
+            self.channels,
+            self.image_size,
+            self.image_size,
+            device=device
+        )
+
+        for i in reversed(range(self.num_timesteps)):
+            t = torch.full((batch_size,), i, device=device, dtype=torch.long)
+            x = self.p_sample(x, t, cond)
+
+        return x
+
 
     # ----------------------------
     # forward
