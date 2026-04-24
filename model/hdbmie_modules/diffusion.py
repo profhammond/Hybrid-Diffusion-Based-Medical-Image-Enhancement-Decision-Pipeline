@@ -81,7 +81,6 @@ class GaussianDiffusion(nn.Module):
         channels=3,
         loss_type='l1', 
         conditional=True,
-        schedule_opt=None
         ):
         super().__init__()
 
